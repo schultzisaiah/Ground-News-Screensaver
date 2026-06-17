@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ground News Screensaver
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Bulletproof Feed-First Extraction with Auto-Scrolling Insights, AI Summaries, normalized bias distribution, Interactive Controls, Multi-Column Previews, and Chronological Sorting.
 // @author       You
 // @match        https://ground.news/*
@@ -777,10 +777,14 @@
 
         resortTimeline() {
             if (this.articles.length === 0) return;
-            const currentId = this.articles[this.currentIndex] && this.articles[this.currentIndex].id;
-            this.articles.sort((a, b) => ArticleScraper.parseTimeWeight(a.timestamp) - ArticleScraper.parseTimeWeight(b.timestamp));
-            const newIndex = this.articles.findIndex(a => a.id === currentId);
-            this.currentIndex = newIndex >= 0 ? newIndex : 0;
+            // Only reorder the *upcoming* items. The currently-displayed slide and
+            // everything already shown stay pinned in place, so a freshly-hydrated
+            // recent story bubbles to the slot right after the current one (played
+            // next) instead of being sorted behind it where it'd be skipped.
+            const head = this.articles.slice(0, this.currentIndex + 1);
+            const tail = this.articles.slice(this.currentIndex + 1);
+            tail.sort((a, b) => ArticleScraper.parseTimeWeight(a.timestamp) - ArticleScraper.parseTimeWeight(b.timestamp));
+            this.articles = head.concat(tail);
             this.buildTimeline();
             this.updateTimelinePosition();
         }
