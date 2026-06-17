@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Ground News Screensaver Ultimate
+// @name         Ground News Screensaver
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Bulletproof Feed-First Extraction with Auto-Scrolling Insights, AI Summaries, normalized bias distribution, Interactive Controls, Multi-Column Previews, and Chronological Sorting.
 // @author       You
 // @match        https://ground.news/*
@@ -128,6 +128,7 @@
     const CONFIG = {
         slideDurationMs: 38000,
         refreshIntervalMs: 450000,
+        hydrationDelayMs: 1500,
         storageKeyActive: 'gn_screensaver_active',
         storageKeyHistory: 'gn_screensaver_history',
         feeds: [
@@ -275,7 +276,7 @@
                     const textContent = (container.textContent || '').replace(/\s+/g, ' ');
 
                     let timestamp = '';
-                    const timeMatch = textContent.match(/(\d+\s*(?:mins?|hours?|days?)\s*ago)/i);
+                    const timeMatch = textContent.match(/(\d+\s*(?:mins?|hours?|days?|weeks?|months?)\s*ago)/i);
                     if (timeMatch) timestamp = timeMatch[1];
 
                     let biasLabel = 'Coverage Analysis';
@@ -323,9 +324,16 @@
             return items;
         }
 
-        static async fetchDeepData(article) {
-            if (article.deepSourcesFetched) return article;
+        static fetchDeepData(article) {
+            if (article.deepSourcesFetched) return Promise.resolve(article);
+            // Dedupe concurrent requests: the per-slide foreground fetch and the
+            // background hydrator can target the same article at the same time.
+            if (article._hydrationPromise) return article._hydrationPromise;
+            article._hydrationPromise = this._doFetchDeepData(article);
+            return article._hydrationPromise;
+        }
 
+        static async _doFetchDeepData(article) {
             try {
                 const response = await fetch(article.url);
                 if (!response.ok) throw new Error("HTTP " + response.status);
@@ -441,6 +449,7 @@
             this.timerFrameId = null;
             this.slideStartTime = null;
             this.scroller = null;
+            this.hydrationActive = false;
 
             this.overlay = this.buildOverlay();
             this.bindKeyboardControls();
@@ -746,6 +755,36 @@
             }
         }
 
+        async hydrateInBackground() {
+            if (this.hydrationActive) return;
+            this.hydrationActive = true;
+
+            // Walk every article once, fetching the authoritative "Last Updated"
+            // time and re-sorting as each lands. One request at a time with a
+            // delay between calls keeps us well under any rate limit; the dedupe
+            // in fetchDeepData means foreground slide fetches are never repeated.
+            for (const article of this.articles) {
+                if (!isScreensaverActive()) break;
+                if (article.deepSourcesFetched) continue;
+
+                await ArticleScraper.fetchDeepData(article);
+                this.resortTimeline();
+                await new Promise(resolve => setTimeout(resolve, CONFIG.hydrationDelayMs));
+            }
+
+            this.hydrationActive = false;
+        }
+
+        resortTimeline() {
+            if (this.articles.length === 0) return;
+            const currentId = this.articles[this.currentIndex] && this.articles[this.currentIndex].id;
+            this.articles.sort((a, b) => ArticleScraper.parseTimeWeight(a.timestamp) - ArticleScraper.parseTimeWeight(b.timestamp));
+            const newIndex = this.articles.findIndex(a => a.id === currentId);
+            this.currentIndex = newIndex >= 0 ? newIndex : 0;
+            this.buildTimeline();
+            this.updateTimelinePosition();
+        }
+
         async setArticlesAndStart(articles) {
             this.articles = articles;
             this.currentIndex = 0;
@@ -754,9 +793,11 @@
             if (this.articles.length > 0) {
                 this.updateStatus("Hydrating initial intelligence...");
                 await ArticleScraper.fetchDeepData(this.articles[0]);
+                this.resortTimeline();
                 this.renderSlide(this.articles[this.currentIndex]);
 
                 this.startTimerLoop();
+                this.hydrateInBackground();
                 setTimeout(() => { window.location.reload(); }, CONFIG.refreshIntervalMs);
             } else {
                 this.updateStatus("No articles found across monitored feeds.");
@@ -792,11 +833,14 @@
 
         preloadNextSlide() {
             const nextIndex = (this.currentIndex + 1) % this.articles.length;
-            ArticleScraper.fetchDeepData(this.articles[nextIndex]).then(() => {
-                if (this.timelineCards[nextIndex]) {
-                    const timeSpan = this.timelineCards[nextIndex].querySelector('.timeline-time');
-                    if (timeSpan && this.articles[nextIndex].timestamp) {
-                        timeSpan.innerText = this.articles[nextIndex].timestamp;
+            const nextArticle = this.articles[nextIndex];
+            ArticleScraper.fetchDeepData(nextArticle).then(() => {
+                this.resortTimeline();
+                const reIndex = this.articles.indexOf(nextArticle);
+                if (reIndex >= 0 && this.timelineCards[reIndex]) {
+                    const timeSpan = this.timelineCards[reIndex].querySelector('.timeline-time');
+                    if (timeSpan && nextArticle.timestamp) {
+                        timeSpan.innerText = nextArticle.timestamp;
                     }
                 }
             });
@@ -805,6 +849,7 @@
         async jumpToSlide(index) {
             this.currentIndex = index;
             await ArticleScraper.fetchDeepData(this.articles[this.currentIndex]);
+            this.resortTimeline();
             this.renderSlide(this.articles[this.currentIndex]);
             this.startTimerLoop();
         }
