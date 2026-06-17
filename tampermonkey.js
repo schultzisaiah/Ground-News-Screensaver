@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ground News Screensaver
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Bulletproof Feed-First Extraction with Auto-Scrolling Insights, AI Summaries, normalized bias distribution, Interactive Controls, Multi-Column Previews, and Chronological Sorting.
 // @author       You
 // @match        https://ground.news/*
@@ -219,12 +219,12 @@
         static parseTimeWeight(timeStr) {
             if (!timeStr) return 99999999;
             const str = timeStr.toLowerCase();
-            const match = str.match(/(\d+)\s*(min|hour|day|week|month)s?\s*ago/);
+            const match = str.match(/(\d+)\s*(minute|min|hour|hr|day|week|month)s?\s*ago/);
             if (match) {
                 const val = parseInt(match[1], 10);
                 const unit = match[2];
-                if (unit === 'min') return val;
-                if (unit === 'hour') return val * 60;
+                if (unit === 'minute' || unit === 'min') return val;
+                if (unit === 'hour' || unit === 'hr') return val * 60;
                 if (unit === 'day') return val * 60 * 24;
                 if (unit === 'week') return val * 60 * 24 * 7;
                 if (unit === 'month') return val * 60 * 24 * 30;
@@ -276,7 +276,7 @@
                     const textContent = (container.textContent || '').replace(/\s+/g, ' ');
 
                     let timestamp = '';
-                    const timeMatch = textContent.match(/(\d+\s*(?:mins?|hours?|days?|weeks?|months?)\s*ago)/i);
+                    const timeMatch = textContent.match(/(\d+\s*(?:minute|min|hour|hr|day|week|month)s?\s*ago)/i);
                     if (timeMatch) timestamp = timeMatch[1];
 
                     let biasLabel = 'Coverage Analysis';
@@ -399,7 +399,7 @@
                         .map(el => (el.textContent || '').trim().replace(/\s+/g, ' '))
                         .filter(t => t.length > 2 && !t.includes('Factuality') && !t.includes('Ownership') && !t.includes('Icon') && !t.includes('Arrow') && !t.includes('Read Full'));
 
-                    const timeStr = texts.find(t => t.match(/\d+\s+(?:min|hour|day|week|month)s?\s+ago/i)) || null;
+                    const timeStr = texts.find(t => t.match(/\d+\s+(?:minute|min|hour|hr|day|week|month)s?\s+ago/i)) || null;
                     const publisher = texts.find(t => t.length < 35 && t !== timeStr && !t.includes('Upgrade') && !t.includes('Lean')) || 'News Source';
 
                     const longTexts = texts.filter(t => t.length >= 35 && t !== timeStr && !t.includes('Upgrade') && !t.includes('Lean'));
@@ -967,7 +967,7 @@
                             const timeSpan = document.createElement('span');
                             timeSpan.className = 'gn-source-time';
 
-                            const cleanTimeMatch = src.timestamp.match(/(\d+\s*(?:min|hour|day|week|month)s?\s*ago)/i);
+                            const cleanTimeMatch = src.timestamp.match(/(\d+\s*(?:minute|min|hour|hr|day|week|month)s?\s*ago)/i);
                             timeSpan.innerText = cleanTimeMatch ? cleanTimeMatch[1] : src.timestamp;
 
                             metaRow.appendChild(timeSpan);
